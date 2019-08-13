@@ -1,41 +1,48 @@
-from tkinter import Tk, Canvas
-import tkinter.simpledialog
-import numpy as np
+import os
+from tkinter import Tk, Canvas, messagebox
 import math
-from numba import jit
+import numpy as np
 from PIL import Image, ImageTk
+from numba import jit
 
-xmin, xmax, ymin, ymax = -0.7459, -0.746, -0.105, -0.1051
+pics = -1
+xmin, xmax, ymin, ymax = [], [], [], []
 xcord1, ycord1, xcord2, ycord2 = 0, 0, 0, 0
 root = Tk()
 w = Canvas(root, width=1000, height=1000)
 
 @jit
 def hsv_to_rgb(h, s, v):
-    if s == 0.0: v *= 255; return (v, v, v)
+    if s == 0.0: v *= 255; return v, v, v
     i = int(h * 6.)  # XXX assume int() truncates!
     f = (h * 6.) - i
     p, q, t = int(255 * (v * (1. - s))), int(255 * (v * (1. - s * f))), int(255 * (v * (1. - s * (1. - f))))
     v *= 255
     i %= 6
-    if i == 0: return (v, t, p)
-    if i == 1: return (q, v, p)
-    if i == 2: return (p, v, t)
-    if i == 3: return (p, q, v)
-    if i == 4: return (t, p, v)
-    if i == 5: return (v, p, q)
+    if i == 0:
+        return v, t, p
+    if i == 1:
+        return q, v, p
+    if i == 2:
+        return p, v, t
+    if i == 3:
+        return p, q, v
+    if i == 4:
+        return t, p, v
+    if i == 5:
+        return v, p, q
 
 
 @jit
-def color(num, maxiters = 200):
+def color(num):
     sep = 300
 
     scale = (math.cos(2*(sep-num)/(sep*2)*math.pi)+1)/2
 
     if num < sep:
-        return hsv_to_rgb(scale, 1.0, scale)
+        return hsv_to_rgb(scale/2, 1.0, scale)
     else:
-        return hsv_to_rgb(scale, 1.0, 1.0)
+        return hsv_to_rgb(scale/2, 1.0, 1.0)
 
 
 @jit(nopython=True)
@@ -63,26 +70,30 @@ def mandelbrot_set(xmins, xmaxs, ymins, ymaxs, width, height, maxiters):
 
 
 def mandelbrot_save(xmins, xmaxs, ymins, ymaxs, width, height, maxiters):
-    global xmin, xmax, ymin, ymax
-    xmin, xmax, ymin, ymax = xmins, xmaxs, ymins, ymaxs
-    pixs = mandelbrot_set(xmin, xmax, ymin, ymax, width, height, maxiters)
+    global xmin, xmax, ymin, ymax, pics
+    pics += 1
+    xmin.append(xmins)
+    xmax.append(xmaxs)
+    ymin.append(ymins)
+    ymax.append(ymaxs)
+    pixs = mandelbrot_set(xmin[pics], xmax[pics], ymin[pics], ymax[pics], width, height, maxiters)
     file = Image.fromarray(pixs)
-    file.save('image.png')
+    file.save('image' + str(pics) + '.png')
 
 
 def scale_maxiters(x1, x2):
     return -45.96*math.log(x1-x2) + 175
 
 
-def getclick2(eventorigin):
-    global x0, y0, xcord2, ycord2
+def release(eventorigin):
+    global x2, y2, xcord2, ycord2
     global img
 
-    x0 = eventorigin.x
-    y0 = eventorigin.y
+    x2 = x0 + min(x1-x0, y1-y0)
+    y2 = y0 + min(x1-x0, y1-y0)
 
-    xcord2 = x0/800 * (xmax-xmin) + xmin
-    ycord2 = y0/800 * (ymax-ymin) + ymin
+    xcord2 = x2/800 * (xmax[pics]-xmin[pics]) + xmin[pics]
+    ycord2 = y2/800 * (ymax[pics]-ymin[pics]) + ymin[pics]
 
     if xcord1 < xcord2 and ycord1 < ycord2:
         print(xcord2-xcord1)
@@ -101,26 +112,66 @@ def getclick2(eventorigin):
         print(scale_maxiters(xcord1, xcord2))
         mandelbrot_save(xcord2, xcord1, ycord2, ycord1, 800, 800, scale_maxiters(xcord1, xcord2))
 
-    file = "image.png"
+    file = "image" + str(pics) + ".png"
     original = Image.open(file)
     img = ImageTk.PhotoImage(original)
 
     w.create_image(0, 0, image=img, anchor="nw")
 
-    w.bind("<Button 1>", getclick1)
+    w.bind("<ButtonRelease-1>", click)
 
 
-def getclick1(eventorigin):
+rect1 = w.create_rectangle(0, 0, 0, 0, outline='white')
+
+
+def motion(eventorigin):
+    global x0, y0, x1, y1, rect1, xcord1, ycord1
+    x1 = eventorigin.x
+    y1 = eventorigin.y
+
+    w.delete(rect1)
+
+    rect1 = w.create_rectangle(x0, y0, x0 + min(x1-x0, y1-y0), y0 + min(x1-x0, y1-y0), outline='white')
+    # rect1 = w.create_rectangle(x0, y0, x1, y1, outline='white')
+
+    w.bind("<ButtonRelease-1>", release)
+
+
+def click(eventorigin):
     global x0, y0, xcord1, ycord1
     x0 = eventorigin.x
     y0 = eventorigin.y
 
-    xcord1 = x0/800 * (xmax-xmin) + xmin
-    ycord1 = y0/800 * (ymax-ymin) + ymin
+    xcord1 = x0/800 * (xmax[pics]-xmin[pics]) + xmin[pics]
+    ycord1 = y0/800 * (ymax[pics]-ymin[pics]) + ymin[pics]
 
     print(xcord1, ycord1)
 
-    w.bind("<Button 1>", getclick2)
+    w.bind("<B1-Motion>", motion)
+
+
+def back(eventorigin):
+    global pics, img
+    print(pics)
+    pics -= 1
+    print(pics)
+    file = "image" + str(pics) + ".png"
+    original = Image.open(file)
+    img = ImageTk.PhotoImage(original)
+
+    xmax.pop()
+    xmin.pop()
+    ymax.pop()
+    ymin.pop()
+
+    w.create_image(0, 0, image=img, anchor="nw")
+
+
+def on_closing():
+    if messagebox.askokcancel("Quit", "Do you want to quit?"):
+        for i in range(pics):
+            os.remove('image' + str(i) + '.png')
+        root.destroy()
 
 
 def init_tk():
@@ -128,12 +179,15 @@ def init_tk():
     w.pack()
 
     # adding the image
-    file = "image.png"
+    file = "image" + str(pics) + ".png"
     original = Image.open(file)
     img = ImageTk.PhotoImage(original)
     w.create_image(0, 0, image=img, anchor="nw")
 
-    w.bind("<Button 1>", getclick1)
+    w.bind("<Button-1>", click)
+    w.bind("<Button-3>", back)
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
 
     root.mainloop()
 
